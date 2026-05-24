@@ -58,8 +58,13 @@ def run_contract_subcommands(
             "--host",
             default=os.getenv(f"{env_prefix}_HOST", "127.0.0.1"),
         )
+        parser.add_argument(
+            "--reload",
+            action="store_true",
+            help="auto-reload on code changes (development only)",
+        )
         ns = parser.parse_args(args[1:])
-        uvicorn.run(app_path, host=ns.host, port=ns.port)
+        uvicorn.run(app_path, host=ns.host, port=ns.port, reload=ns.reload)
         return True
 
     return False

@@ -17,7 +17,18 @@ the family table and is not auto-routable.
 | `add_contract_routes(app, MANIFEST)` | hand-written `GET /health` + `GET /manifest` |
 | `make_app(MANIFEST, analyse)` | the whole `api.py` for the path-only common case |
 | `upload_tempfile(content, filename)` | the `POST /analyse` upload→tempfile→cleanup dance |
-| `run_contract_subcommands(...)` | the `serve` + `manifest` dispatch in `cli.py` |
+| `run_contract_subcommands(...)` | the `serve` (+`--reload`) + `manifest` dispatch in `cli.py` |
+| `add_cors(app, env_prefix=…)` | per-repo CORS (one impl; env-driven; never `*` by default) |
+| `add_rate_limit(app, env_prefix=…)` | per-repo slowapi setup (opt-in; needs `lens-contract[ratelimit]`) |
+
+### Making any member Electron/browser-ready
+
+`add_cors` lets any member front a browser or Electron app via env vars, no code change:
+
+- `{PREFIX}_MODE=desktop` → allow `localhost` / `127.0.0.1` / `file://` origins (Electron)
+- otherwise → allow `{PREFIX}_ALLOWED_ORIGINS` (comma-separated; defaults to the common dev ports)
+
+`add_rate_limit` is opt-in via `{PREFIX}_RATE_LIMIT_ENABLED=true` (limit from `{PREFIX}_RATE_LIMIT`, e.g. `60/minute`).
 
 ## What it deliberately does **not** provide
 

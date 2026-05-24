@@ -8,6 +8,7 @@ common path-only case.
 """
 from __future__ import annotations
 
+import os
 import tempfile
 import time
 from collections.abc import Callable, Iterator
@@ -55,6 +56,86 @@ def add_contract_routes(app: FastAPI, manifest: Manifest) -> None:
     @app.get("/manifest")
     def get_manifest() -> Manifest:
         return manifest
+
+
+def add_cors(app: FastAPI, *, env_prefix: str) -> None:
+    """Add CORS with one consistent configuration so any family member can front a
+    browser/Electron app via environment variables — no code changes:
+
+        {PREFIX}_MODE=desktop
+            allow localhost / 127.0.0.1 / file:// / null origins (Electron), no
+            credentials. Use this when the analyser is embedded in a desktop app.
+        otherwise (web mode)
+            allow {PREFIX}_ALLOWED_ORIGINS (comma-separated; defaults to the common
+            Vite/CRA dev ports), with credentials.
+
+    Never defaults to "*": an unset web-mode origin list falls back to localhost dev
+    ports, not "allow everything". Safe to call on any member; lean/CLI-only members
+    simply don't call it.
+    """
+    from fastapi.middleware.cors import CORSMiddleware
+
+    if os.getenv(f"{env_prefix}_MODE") == "desktop":
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origin_regex=(
+                r"^(https?://localhost(:\d+)?"
+                r"|https?://127\.0\.0\.1(:\d+)?"
+                r"|file://.*"
+                r"|null)$"
+            ),
+            allow_credentials=False,
+            allow_methods=["*"],
+            allow_headers=["*"],
+        )
+        return
+
+    origins = [
+        o.strip()
+        for o in os.getenv(
+            f"{env_prefix}_ALLOWED_ORIGINS",
+            "http://localhost:3000,http://localhost:5173",
+        ).split(",")
+        if o.strip()
+    ]
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=origins,
+        allow_credentials=True,
+        allow_methods=["GET", "POST", "OPTIONS"],
+        allow_headers=["*"],
+    )
+
+
+def add_rate_limit(
+    app: FastAPI, *, env_prefix: str, default_limit: str = "60/minute"
+) -> None:
+    """Opt-in, service-wide rate limiting (needs the `lens-contract[ratelimit]` extra).
+
+    No-op unless {PREFIX}_RATE_LIMIT_ENABLED=true, so it's safe to call
+    unconditionally. The limit is read from {PREFIX}_RATE_LIMIT (slowapi syntax,
+    e.g. "60/minute"), defaulting to `default_limit`, and is applied to every route
+    via SlowAPIMiddleware.
+    """
+    if os.getenv(f"{env_prefix}_RATE_LIMIT_ENABLED", "false").lower() != "true":
+        return
+
+    try:
+        from slowapi import Limiter, _rate_limit_exceeded_handler
+        from slowapi.errors import RateLimitExceeded
+        from slowapi.middleware import SlowAPIMiddleware
+        from slowapi.util import get_remote_address
+    except ImportError as exc:  # pragma: no cover - depends on optional extra
+        raise RuntimeError(
+            f"{env_prefix}_RATE_LIMIT_ENABLED is set but slowapi is not installed. "
+            "Install the extra: pip install 'lens-contract[ratelimit]'."
+        ) from exc
+
+    limit = os.getenv(f"{env_prefix}_RATE_LIMIT", default_limit)
+    limiter = Limiter(key_func=get_remote_address, default_limits=[limit])
+    app.state.limiter = limiter
+    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+    app.add_middleware(SlowAPIMiddleware)
 
 
 def make_app(manifest: Manifest, analyse: Callable[[Path], Any]) -> FastAPI:

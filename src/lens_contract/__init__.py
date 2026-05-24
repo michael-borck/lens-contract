@@ -32,7 +32,13 @@ See CONVENTIONS.md in the lens-analysers umbrella for the full contract.
 """
 from __future__ import annotations
 
-from .api import add_contract_routes, make_app, upload_tempfile
+from .api import (
+    add_contract_routes,
+    add_cors,
+    add_rate_limit,
+    make_app,
+    upload_tempfile,
+)
 from .cli import run_contract_subcommands
 from .manifest import Manifest, make_manifest
 
@@ -40,6 +46,8 @@ __all__ = [
     "Manifest",
     "make_manifest",
     "add_contract_routes",
+    "add_cors",
+    "add_rate_limit",
     "make_app",
     "upload_tempfile",
     "run_contract_subcommands",

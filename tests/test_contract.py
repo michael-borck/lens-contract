@@ -8,6 +8,8 @@ from fastapi.testclient import TestClient
 
 from lens_contract import (
     add_contract_routes,
+    add_cors,
+    add_rate_limit,
     make_app,
     make_manifest,
     run_contract_subcommands,
@@ -147,3 +149,56 @@ def test_cli_empty_argv():
         _manifest(), app_path="x:app", default_port=8009, env_prefix="EXAMPLE", argv=[]
     )
     assert handled is False
+
+
+# --- add_cors --------------------------------------------------------------
+
+def _app_with(route_helper):
+    app = FastAPI()
+
+    @app.get("/x")
+    def x():
+        return {"ok": True}
+
+    route_helper(app)
+    return TestClient(app)
+
+
+def test_cors_web_mode_allows_configured_origin_not_others():
+    client = _app_with(lambda app: add_cors(app, env_prefix="EXAMPLE"))
+    allowed = client.get("/x", headers={"Origin": "http://localhost:5173"})
+    assert allowed.headers.get("access-control-allow-origin") == "http://localhost:5173"
+    # an unconfigured origin is NOT echoed (never a blanket "*")
+    denied = client.get("/x", headers={"Origin": "http://evil.example.com"})
+    assert denied.headers.get("access-control-allow-origin") is None
+
+
+def test_cors_desktop_mode_allows_any_localhost(monkeypatch):
+    monkeypatch.setenv("EXAMPLE_MODE", "desktop")
+    client = _app_with(lambda app: add_cors(app, env_prefix="EXAMPLE"))
+    resp = client.get("/x", headers={"Origin": "http://localhost:9999"})
+    assert resp.headers.get("access-control-allow-origin") == "http://localhost:9999"
+
+
+def test_cors_custom_origins_from_env(monkeypatch):
+    monkeypatch.setenv("EXAMPLE_ALLOWED_ORIGINS", "https://app.example.com")
+    client = _app_with(lambda app: add_cors(app, env_prefix="EXAMPLE"))
+    resp = client.get("/x", headers={"Origin": "https://app.example.com"})
+    assert resp.headers.get("access-control-allow-origin") == "https://app.example.com"
+
+
+# --- add_rate_limit --------------------------------------------------------
+
+def test_rate_limit_disabled_is_noop():
+    app = FastAPI()
+    add_rate_limit(app, env_prefix="EXAMPLE")
+    assert getattr(app.state, "limiter", None) is None
+
+
+def test_rate_limit_enforced_when_enabled(monkeypatch):
+    monkeypatch.setenv("EXAMPLE_RATE_LIMIT_ENABLED", "true")
+    monkeypatch.setenv("EXAMPLE_RATE_LIMIT", "2/minute")
+    client = _app_with(lambda app: add_rate_limit(app, env_prefix="EXAMPLE"))
+    assert client.get("/x").status_code == 200
+    assert client.get("/x").status_code == 200
+    assert client.get("/x").status_code == 429
