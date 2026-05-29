@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "lens-contract"
-version = "0.2.0"
+version = "0.3.0"
 description = "The shared contract surface for the lens analyser family — manifest builder + FastAPI/CLI scaffolding every member exposes."
 readme = "README.md"
 requires-python = ">=3.10"

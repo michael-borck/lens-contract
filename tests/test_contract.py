@@ -7,6 +7,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from lens_contract import (
+    add_auth,
     add_contract_routes,
     add_cors,
     add_rate_limit,
@@ -202,3 +203,55 @@ def test_rate_limit_enforced_when_enabled(monkeypatch):
     assert client.get("/x").status_code == 200
     assert client.get("/x").status_code == 200
     assert client.get("/x").status_code == 429
+
+
+# --- add_auth --------------------------------------------------------------
+
+def test_auth_disabled_is_noop():
+    """No token in the env -> no gate; every route stays open."""
+    client = _app_with(lambda app: add_auth(app, env_prefix="EXAMPLE"))
+    assert client.get("/x").status_code == 200
+
+
+def _auth_app(monkeypatch, token="s3cret"):
+    monkeypatch.setenv("EXAMPLE_AUTH_TOKEN", token)
+    app = FastAPI()
+
+    @app.get("/x")
+    def x():
+        return {"ok": True}
+
+    m = _manifest()
+    add_contract_routes(app, m)
+    # add_auth before add_cors so CORS remains the outermost middleware.
+    add_auth(app, env_prefix="EXAMPLE")
+    add_cors(app, env_prefix="EXAMPLE")
+    return TestClient(app)
+
+
+def test_auth_blocks_without_token(monkeypatch):
+    client = _auth_app(monkeypatch)
+    resp = client.get("/x")
+    assert resp.status_code == 401
+    assert resp.json()["detail"] == "Unauthorized"
+
+
+def test_auth_blocks_wrong_token(monkeypatch):
+    client = _auth_app(monkeypatch)
+    resp = client.get("/x", headers={"Authorization": "Bearer nope"})
+    assert resp.status_code == 401
+
+
+def test_auth_allows_correct_token(monkeypatch):
+    client = _auth_app(monkeypatch)
+    resp = client.get("/x", headers={"Authorization": "Bearer s3cret"})
+    assert resp.status_code == 200
+    assert resp.json() == {"ok": True}
+
+
+def test_auth_exempts_health_and_manifest(monkeypatch):
+    """Liveness + contract probes must work without the token (the desktop
+    host's health check never holds it)."""
+    client = _auth_app(monkeypatch)
+    assert client.get("/health").status_code == 200
+    assert client.get("/manifest").status_code == 200

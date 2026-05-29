@@ -138,6 +138,50 @@ def add_rate_limit(
     app.add_middleware(SlowAPIMiddleware)
 
 
+def add_auth(app: FastAPI, *, env_prefix: str) -> None:
+    """Opt-in bearer-token gate, applied one consistent way across the family.
+
+    No-op unless ``{PREFIX}_AUTH_TOKEN`` is set, so it's safe to call
+    unconditionally. When the token is present, every request must carry
+    ``Authorization: Bearer <token>`` EXCEPT:
+
+      - ``GET /health`` and ``GET /manifest`` — liveness + contract probes,
+        carry no secrets, and a desktop host's health check must reach them
+        without holding the token;
+      - CORS preflight (``OPTIONS``) requests, which never carry the header.
+
+    Intended use:
+      - Desktop host: generate a random token at launch, pass it to the
+        spawned backend via ``{PREFIX}_AUTH_TOKEN``, and send it from the
+        client. Stops other local processes from driving the loopback port.
+      - Web deployment: set the env var (behind a real auth proxy for anything
+        internet-facing — this token is a backstop, not the whole story).
+
+    Call this BEFORE ``add_cors`` so CORS stays the outermost middleware and
+    can attach its headers even to a 401 response. Comparison is constant-time.
+    """
+    import secrets
+
+    from starlette.requests import Request
+    from starlette.responses import JSONResponse
+
+    token = os.getenv(f"{env_prefix}_AUTH_TOKEN")
+    if not token:
+        return
+
+    open_paths = {"/health", "/manifest"}
+    expected = f"Bearer {token}"
+
+    @app.middleware("http")
+    async def _require_token(request: Request, call_next):  # type: ignore[no-untyped-def]
+        if request.method == "OPTIONS" or request.url.path in open_paths:
+            return await call_next(request)
+        provided = request.headers.get("Authorization", "")
+        if not secrets.compare_digest(provided, expected):
+            return JSONResponse(status_code=401, content={"detail": "Unauthorized"})
+        return await call_next(request)
+
+
 def make_app(manifest: Manifest, analyse: Callable[[Path], Any]) -> FastAPI:
     """Build a complete app for the common case: `analyse(path) -> pydantic model`
     with no extra form fields.
