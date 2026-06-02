@@ -13,7 +13,12 @@ not an analyser, and must not appear in the family table.
 from __future__ import annotations
 
 from importlib.metadata import PackageNotFoundError, version
-from typing import TypedDict
+
+# Use typing_extensions.TypedDict, NOT typing.TypedDict: Pydantic v2 (which
+# FastAPI uses to build the /manifest response schema) cannot introspect a
+# typing.TypedDict on Python < 3.12 and raises PydanticUserError at app import.
+# typing_extensions works on every supported version.
+from typing_extensions import TypedDict
 
 
 class Manifest(TypedDict, total=False):
