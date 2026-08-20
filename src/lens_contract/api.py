@@ -81,6 +81,13 @@ def add_cors(app: FastAPI, *, env_prefix: str) -> None:
             allow_origin_regex=(
                 r"^(https?://localhost(:\d+)?"
                 r"|https?://127\.0\.0\.1(:\d+)?"
+                # Tauri packaged-webview origins: tauri://localhost on
+                # macOS/Linux (WKWebView/WebKitGTK), http(s)://tauri.localhost
+                # on Windows (WebView2). Without these, every fetch from a
+                # packaged Tauri app fails CORS preflight while dev
+                # (http://localhost:<port>) works — a silent prod-only break.
+                r"|tauri://localhost"
+                r"|https?://tauri\.localhost"
                 r"|file://.*"
                 r"|null)$"
             ),
